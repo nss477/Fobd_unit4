@@ -1,0 +1,165 @@
+# =====================================
+# STEP 1: IMPORT LIBRARIES
+# =====================================
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, to_date, year, month, sum as _sum
+import pandas as pd
+
+import matplotlib
+matplotlib.use("Agg")   # REQUIRED for non-GUI environments
+import matplotlib.pyplot as plt
+
+# =====================================
+# STEP 2: START SPARK SESSION
+# =====================================
+spark = SparkSession.builder \
+    .appName("Supermarket Data Visualization") \
+    .getOrCreate()
+
+# =====================================
+# STEP 3: LOAD DATASET
+# (Update path if needed)
+# =====================================
+df = spark.read.csv(
+    "file:///home/hduser/grocerydata.csv",  # ✅ correct absolute path
+    header=True,
+    inferSchema=True
+)
+# -----------------------------
+# DATA PREPARATION
+# -----------------------------
+df = df.withColumn("transaction_date", to_date(col("transaction_date"), "yyyy-MM-dd"))
+df = df.dropna()
+df = df.withColumn("Year", year(col("transaction_date"))) \
+       .withColumn("Month", month(col("transaction_date")))
+
+# -----------------------------
+# CONVERT TO PANDAS
+# -----------------------------
+pdf = df.select(
+    "aisle", "store_name", "quantity", "unit_price",
+    "total_amount", "discount_amount", "final_amount",
+    "Year", "Month"
+).toPandas()
+
+# -----------------------------
+# 1️⃣ Customized Histogram
+# -----------------------------
+plt.figure(figsize=(7,5))
+plt.hist(
+    pdf["final_amount"],
+    bins=25,
+    color="#4C72B0",       # color-blind friendly blue
+    edgecolor="black"
+)
+plt.title("Final Amount Distribution", fontsize=14)
+plt.xlabel("Final Amount", fontsize=12)
+plt.ylabel("Frequency", fontsize=12)
+plt.grid(axis="y", linestyle="--", alpha=0.6)
+plt.savefig("custom_hist_final_amount.png")
+plt.close()
+
+# -----------------------------
+# 2️⃣ Customized Scatter Plot
+# -----------------------------
+plt.figure(figsize=(7,5))
+plt.scatter(
+    pdf["discount_amount"],
+    pdf["final_amount"],
+    color="#55A868",
+    marker="o",
+    alpha=0.7
+)
+plt.title("Discount vs Final Amount", fontsize=14)
+plt.xlabel("Discount Amount", fontsize=12)
+plt.ylabel("Final Amount", fontsize=12)
+plt.grid(True, linestyle=":")
+plt.savefig("custom_scatter_discount.png")
+plt.close()
+
+# -----------------------------
+# 3️⃣ Customized Box Plot
+# -----------------------------
+plt.figure(figsize=(10,5))
+pdf.boxplot(
+    column="final_amount",
+    by="aisle",
+    patch_artist=True,
+    boxprops=dict(facecolor="#C44E52"),
+    medianprops=dict(color="black")
+)
+plt.title("Final Amount by Aisle", fontsize=14)
+plt.suptitle("")
+plt.xlabel("Aisle")
+plt.ylabel("Final Amount")
+plt.xticks(rotation=45)
+plt.grid(axis="y", linestyle="--", alpha=0.5)
+plt.savefig("custom_boxplot_aisle.png")
+plt.close()
+
+# -----------------------------
+# 4️⃣ Annotated Line Plot (Peak Sales)
+# -----------------------------
+# Monthly sales for Task 3 visualization
+monthly_sales = df.groupBy("Year", "Month") \
+    .agg(_sum("final_amount").alias("MonthlySales")) \
+    .orderBy("Year", "Month") \
+    .toPandas()
+
+plt.figure(figsize=(8,5))
+plt.plot(
+    monthly_sales["MonthlySales"],
+    color="#8172B2",
+    marker="o"
+)
+
+# Find peak
+max_value = monthly_sales["MonthlySales"].max()
+max_index = monthly_sales["MonthlySales"].idxmax()
+
+plt.annotate(
+    "Peak Sales",
+    xy=(max_index, max_value),
+    xytext=(max_index, max_value + 20),
+    arrowprops=dict(facecolor="black")
+)
+
+plt.title("Monthly Sales Trend", fontsize=14)
+plt.xlabel("Time")
+plt.ylabel("Total Sales")
+plt.grid(True, linestyle="--")
+plt.savefig("custom_line_monthly_sales.png")
+plt.close()
+
+# -----------------------------
+# 5️⃣ Store-wise Multi-Line Plot
+# -----------------------------
+store_sales = df.groupBy("Year", "Month", "store_name") \
+    .agg(_sum("final_amount").alias("Sales")) \
+    .orderBy("Year", "Month") \
+    .toPandas()
+
+pivot_store = store_sales.pivot_table(
+    index=["Year", "Month"],
+    columns="store_name",
+    values="Sales",
+    aggfunc="sum"
+)
+
+plt.figure(figsize=(10,6))
+pivot_store.plot(
+    marker="o",
+    linewidth=2,
+    colormap="tab10"  # color-blind friendly palette
+)
+plt.title("Store-wise Sales Trend")
+plt.xlabel("Time (Year, Month)")
+plt.ylabel("Sales")
+plt.legend(title="Store Name", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.grid(True, linestyle="--", alpha=0.5)
+plt.savefig("store_wise_sales_trend.png")
+plt.close()
+
+print("✅ Task 3: Customized visualizations saved successfully.")
+
+

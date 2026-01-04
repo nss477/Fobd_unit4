@@ -1,0 +1,151 @@
+# =====================================
+# STEP 1: IMPORT LIBRARIES
+# =====================================
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, to_date, year, month, sum as _sum
+import pandas as pd
+
+import matplotlib
+matplotlib.use("Agg")   # REQUIRED for non-GUI environments
+import matplotlib.pyplot as plt
+
+# =====================================
+# STEP 2: START SPARK SESSION
+# =====================================
+spark = SparkSession.builder \
+    .appName("Supermarket Data Visualization") \
+    .getOrCreate()
+
+# =====================================
+# STEP 3: LOAD DATASET
+# (Update path if needed)
+# =====================================
+df = spark.read.csv(
+    "file:///home/hduser/supermarket.csv",  # ✅ correct absolute path
+    header=True,
+    inferSchema=True
+)
+
+# =====================================
+# STEP 4: DATA PREPARATION
+# =====================================
+# Convert transaction_date to DateType
+df = df.withColumn(
+    "transaction_date",
+    to_date(col("transaction_date"), "yyyy-MM-dd")
+)
+
+# Drop missing values
+df = df.dropna()
+
+# Extract Year and Month
+df = df.withColumn("Year", year(col("transaction_date"))) \
+       .withColumn("Month", month(col("transaction_date")))
+
+# =====================================
+# STEP 5: CONVERT TO PANDAS FOR PLOTTING
+# =====================================
+pdf = df.select(
+    "aisle",
+    "store_name",
+    "quantity",
+    "unit_price",
+    "total_amount",
+    "discount_amount",
+    "final_amount",
+    "Year",
+    "Month"
+).toPandas()
+
+# =====================================
+# TASK 2: VISUALIZATIONS
+# =====================================
+
+# 1️⃣ Histogram – Total Amount Distribution
+plt.figure()
+plt.hist(pdf["total_amount"], bins=30)
+plt.title("Total Amount Distribution")
+plt.xlabel("Total Amount")
+plt.ylabel("Frequency")
+plt.savefig("hist_total_amount.png")
+plt.close()
+
+# 2️⃣ Histogram – Final Amount Distribution
+plt.figure()
+plt.hist(pdf["final_amount"], bins=30)
+plt.title("Final Amount Distribution")
+plt.xlabel("Final Amount")
+plt.ylabel("Frequency")
+plt.savefig("hist_final_amount.png")
+plt.close()
+
+# 3️⃣ Box Plot – Final Amount by Aisle
+plt.figure(figsize=(10,5))
+pdf.boxplot(column="final_amount", by="aisle", rot=90)
+plt.title("Final Amount Distribution by Aisle")
+plt.suptitle("")
+plt.xlabel("Aisle")
+plt.ylabel("Final Amount")
+plt.savefig("boxplot_aisle.png")
+plt.close()
+
+# 4️⃣ Scatter Plot – Total Amount vs Final Amount
+plt.figure()
+plt.scatter(pdf["total_amount"], pdf["final_amount"])
+plt.title("Total Amount vs Final Amount")
+plt.xlabel("Total Amount")
+plt.ylabel("Final Amount")
+plt.savefig("scatter_total_vs_final.png")
+plt.close()
+
+# 5️⃣ Scatter Plot – Discount vs Final Amount
+plt.figure()
+plt.scatter(pdf["discount_amount"], pdf["final_amount"])
+plt.title("Discount vs Final Amount")
+plt.xlabel("Discount Amount")
+plt.ylabel("Final Amount")
+plt.savefig("scatter_discount_vs_final.png")
+plt.close()
+
+# 6️⃣ Line Plot – Monthly Sales Trend
+monthly_sales = df.groupBy("Year", "Month") \
+    .agg(_sum("final_amount").alias("MonthlySales")) \
+    .orderBy("Year", "Month") \
+    .toPandas()
+
+plt.figure()
+plt.plot(monthly_sales["MonthlySales"])
+plt.title("Monthly Sales Trend")
+plt.xlabel("Time")
+plt.ylabel("Total Sales")
+plt.savefig("line_monthly_sales.png")
+plt.close()
+
+# 7️⃣ Multi-Line Plot – Store-wise Sales Trend
+store_sales = df.groupBy("Year", "Month", "store_name") \
+    .agg(_sum("final_amount").alias("Sales")) \
+    .orderBy("Year", "Month") \
+    .toPandas()
+
+pivot_store = store_sales.pivot_table(
+    index=["Year", "Month"],
+    columns="store_name",
+    values="Sales",
+    aggfunc="sum"
+)
+
+plt.figure()
+pivot_store.plot()
+plt.title("Store-wise Sales Trend")
+plt.xlabel("Time")
+plt.ylabel("Sales")
+plt.savefig("line_storewise_sales.png")
+plt.close()
+
+# =====================================
+# STEP 6: STOP SPARK SESSION
+# =====================================
+spark.stop()
+
+print("✅ All graphs generated successfully and saved as PNG files.")
+
